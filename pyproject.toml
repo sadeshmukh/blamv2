@@ -4,4 +4,8 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "aiohttp>=3.13.2",
+    "cachetools>=6.2.4",
+    "slack-bolt>=1.27.0",
+]
