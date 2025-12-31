@@ -5,6 +5,7 @@ import os
 import cachetools
 from cachetools.keys import hashkey
 
+logger = logging.getLogger(__name__)
 
 _idv_cache = cachetools.TTLCache(maxsize=1024, ttl=300)
 
@@ -27,7 +28,7 @@ def async_cached(cache):
 
 
 @async_cached(_idv_cache)
-async def idvstatus(userid: str, logger) -> str:
+async def idvstatus(userid: str) -> str:
     IDV_ENDPOINT = "https://identity.hackclub.com/api/external/check"
     async with aiohttp.ClientSession() as session:
         params = {"slack_id": userid}
@@ -38,22 +39,22 @@ async def idvstatus(userid: str, logger) -> str:
             return id_data.get("result", None)
 
 
-async def is_idved(userid: str, logger) -> bool:
-    return await idvstatus(userid, logger) in [
+async def is_idved(userid: str) -> bool:
+    return await idvstatus(userid) in [
         "verified_eligible",
         "verified_but_over_18",
     ]
 
 
-async def is_idved_under18(userid: str, logger) -> bool:
-    return await idvstatus(userid, logger) == "verified_eligible"
+async def is_idved_under18(userid: str) -> bool:
+    return await idvstatus(userid) == "verified_eligible"
 
 
 botcache = set()
 usercache = set()
 
 
-async def user_is_bot(userid: str, client, logger) -> bool:
+async def user_is_bot(userid: str, client) -> bool:
     if userid in botcache:
         return True
     if userid in usercache:

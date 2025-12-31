@@ -49,6 +49,7 @@ async def ensure_schema() -> None:
                 CREATE TABLE IF NOT EXISTS channel_settings (
                     channel_id TEXT NOT NULL,
                     idv_required_level INTEGER NOT NULL DEFAULT 0,
+                    slowmode_seconds INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY (channel_id)
                 );
                 """
@@ -72,9 +73,116 @@ async def ensure_schema() -> None:
                 );
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS slowmode_times (
+                    channel_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    PRIMARY KEY (channel_id, user_id)
+                );
+                """
+            )
+
             db.commit()
 
     await asyncio.to_thread(_create)
+
+
+async def set_channel_slowmode_time(channel_id: str, time_sec: int) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                """
+                INSERT INTO channel_settings (channel_id, slowmode_seconds)
+                VALUES (?, ?)
+                ON CONFLICT(channel_id) DO UPDATE SET slowmode_seconds=excluded.slowmode_seconds;
+                """,
+                (channel_id, time_sec),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+
+
+async def get_channel_slowmode_time(channel_id: str) -> int:
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT slowmode_seconds FROM channel_settings WHERE channel_id = ?;",
+                (channel_id,),
+            )
+            row = cur.fetchone()
+            if row:
+                return row["slowmode_seconds"]
+            return 0
+
+    return await asyncio.to_thread(_query)
+
+
+async def set_user_slowmoded(
+    channel_id: str,
+    user_id: str,
+    expires_at: str,
+) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                """
+                INSERT INTO slowmode_times (channel_id, user_id, expires_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(channel_id, user_id) DO UPDATE SET expires_at=excluded.expires_at;
+                """,
+                (channel_id, user_id, expires_at),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
+
+
+async def clear_user_slowmoded(
+    channel_id: str,
+    user_id: str,
+) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                "DELETE FROM slowmode_times WHERE channel_id = ? AND user_id = ?;",
+                (channel_id, user_id),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
+
+
+async def get_user_slowmoded(
+    channel_id: str,
+    user_id: str,
+) -> str | None:
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT expires_at FROM slowmode_times WHERE channel_id = ? AND user_id = ?;",
+                (channel_id, user_id),
+            )
+            row = cur.fetchone()
+            if row:
+                return row["expires_at"]
+            return None
+
+    return await asyncio.to_thread(_query)
 
 
 async def mark_channel_updated(channel_id: str) -> None:
@@ -87,24 +195,6 @@ async def mark_channel_updated(channel_id: str) -> None:
                 INSERT INTO channel_sync (channel_id, last_update_at)
                 VALUES (?, CURRENT_TIMESTAMP)
                 ON CONFLICT(channel_id) DO UPDATE SET last_update_at=CURRENT_TIMESTAMP;
-                """,
-                (channel_id,),
-            )
-            db.commit()
-
-    await asyncio.to_thread(_exec)
-
-
-async def marksync(channel_id: str) -> None:
-    db = get_client()
-
-    def _exec():
-        with _db_lock:
-            db.execute(
-                """
-                INSERT INTO channel_sync (channel_id, last_sync_at)
-                VALUES (?, CURRENT_TIMESTAMP)
-                ON CONFLICT(channel_id) DO UPDATE SET last_sync_at=CURRENT_TIMESTAMP;
                 """,
                 (channel_id,),
             )
