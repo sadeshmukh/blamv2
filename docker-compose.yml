@@ -10,6 +10,7 @@ services:
       - SLACK_XOXC=${SLACK_XOXC}
       - SLACK_XOXD=${SLACK_XOXD}
       - ADMIN_ID=${ADMIN_ID}
+      - SLACK_BASE_CMD=${SLACK_BASE_CMD}
       - DB_PATH=/data/channelblam.db
     volumes:
       - db-data:/data
