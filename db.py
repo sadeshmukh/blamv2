@@ -83,6 +83,15 @@ async def ensure_schema() -> None:
                 );
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS channel_managers (
+                    channel_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    PRIMARY KEY (channel_id, user_id)
+                );
+                """
+            )
 
             db.commit()
 
@@ -445,6 +454,39 @@ async def list_whitelisted(channel_id: str) -> List[str]:
         with _db_lock:
             cur = db.execute(
                 "SELECT user_id FROM channel_whitelist WHERE channel_id = ?;",
+                (channel_id,),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
+    return await asyncio.to_thread(_query)
+
+
+async def set_managers(channel_id: str, user_ids: List[str]) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                "DELETE FROM channel_managers WHERE channel_id = ?;",
+                (channel_id,),
+            )
+            for user_id in user_ids:
+                db.execute(
+                    "INSERT OR IGNORE INTO channel_managers (channel_id, user_id) VALUES (?, ?);",
+                    (channel_id, user_id),
+                )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+
+
+async def list_managers(channel_id: str) -> List[str]:
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT user_id FROM channel_managers WHERE channel_id = ?;",
                 (channel_id,),
             )
             return [str(row[0]) for row in cur.fetchall()]

@@ -35,6 +35,8 @@ from db import (
     needs_sync,
     list_tracked_channels,
     set_members,
+    set_managers,
+    list_managers,
 )
 from idv import is_idved, is_idved_under18, user_is_bot
 from utils import (
@@ -209,6 +211,7 @@ async def sync_channel(channel_id: str) -> None:
     whitelisted = set(await list_whitelisted(channel_id))
     idv_level = await get_idv_required_level(channel_id)
     managers = set(await _fetch_channel_managers(channel_id))
+    await set_managers(channel_id, list(managers))
 
     tasks = [
         _process_user_permissions(
@@ -236,6 +239,10 @@ async def handle_message_events(body):
 
     slowmode_time = await get_channel_slowmode_time(channel_id)
     if not slowmode_time:
+        return
+
+    managers = set(await list_managers(channel_id))
+    if user_id in managers:
         return
 
     now = time.time()
@@ -341,9 +348,20 @@ async def init_channels() -> None:
         try:
             members = await _fetch_channel_members(channel_id)
             await set_members(channel_id, members)
+            managers = await _fetch_channel_managers(channel_id)
+            await set_managers(channel_id, list(managers))
             await sync_channel(channel_id)
         except Exception as exc:
             logger.warning(f"Failed to init channel {channel_id}", exc_info=exc)
+
+
+async def periodic_init() -> None:
+    while True:
+        await asyncio.sleep(3600)  # TODO: allow manual trigger, diff admin, etc.
+        try:
+            await init_channels()
+        except Exception as exc:
+            logger.error("Reinit failed", exc_info=exc)
 
 
 async def main() -> None:
@@ -353,6 +371,8 @@ async def main() -> None:
     BOT_USER_ID = str(await _resolve_bot_user_id(app))
     await ensure_schema()
     await init_channels()
+
+    asyncio.create_task(periodic_init())
 
     handler = AsyncSocketModeHandler(app, _env("SLACK_APP_TOKEN"))
     await handler.start_async()
