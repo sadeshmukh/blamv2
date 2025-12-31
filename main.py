@@ -293,12 +293,14 @@ async def handle_member_joined_channel(body, say):
         return
 
     if user_id == body.get("authorizations", [{}])[0].get("user_id"):
+        await init_channel(channel_id)
         try:
             await AsyncWebClient(token=_env("SLACK_BOT_TOKEN")).conversations_invite(
                 channel=channel_id, users=str(ADMIN_ID)
             )
         except SlackApiError as exc:
             logger.warning("Failed to invite admin to channel", exc_info=exc)
+        return
 
     await add_member(channel_id, user_id)
     await sync_channel(channel_id)
@@ -341,18 +343,23 @@ async def _invite_bot(channel_id: str) -> None:
     await _invite_user(channel_id, str(BOT_USER_ID), token=admin_token)
 
 
+async def init_channel(channel_id: str) -> None:
+    try:
+        members = await _fetch_channel_members(channel_id)
+        await set_members(channel_id, members)
+        managers = await _fetch_channel_managers(channel_id)
+        await set_managers(channel_id, list(managers))
+        await sync_channel(channel_id)
+        logger.info(f"Initialized channel {channel_id}")
+    except Exception as exc:
+        logger.warning(f"Failed to init channel {channel_id}", exc_info=exc)
+
+
 async def init_channels() -> None:
     channels = await list_tracked_channels()
     logger.info(f"Initializing {len(channels)} tracked channels")
     for channel_id in channels:
-        try:
-            members = await _fetch_channel_members(channel_id)
-            await set_members(channel_id, members)
-            managers = await _fetch_channel_managers(channel_id)
-            await set_managers(channel_id, list(managers))
-            await sync_channel(channel_id)
-        except Exception as exc:
-            logger.warning(f"Failed to init channel {channel_id}", exc_info=exc)
+        await init_channel(channel_id)
 
 
 async def periodic_init() -> None:

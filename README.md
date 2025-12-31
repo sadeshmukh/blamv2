@@ -17,8 +17,9 @@ You can enable slowmode with `/blam slowmode`.
 Features on the roadmap:
 
 - Reimplement `/blam idv test` and `/blam whitelist channel`
-- More slowmode configuration
+- More slowmode configuration (e.g. top-level restrictions only)
 - Configurable penalty length
+- Fix bot posting permissions
 
 # Development
 
