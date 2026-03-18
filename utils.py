@@ -120,7 +120,9 @@ async def _get_channel_allowed_users(channel_id: str) -> list[str]:
     return users
 
 
-async def _set_channel_allowed_users(channel_id: str, users: list[str]) -> None:
+async def _set_channel_allowed_users(
+    channel_id: str, users: list[str], nothreads: bool = False
+) -> None:
     async with aiohttp.ClientSession(headers=HEADERS) as session:
         url = "https://hackclub.enterprise.slack.com/api/channels.prefs.set?slack_route=E09V59WQY1E%3AE09V59WQY1E"
         prefs = {
@@ -128,7 +130,9 @@ async def _set_channel_allowed_users(channel_id: str, users: list[str]) -> None:
                 "type:admin,user:" + ",user:".join(users) if users else "type:admin"
             ),
             "can_thread": (
-                "type:admin,user:" + ",user:".join(users) if users else "type:admin"
+                ("type:admin,user:" + ",user:".join(users) if users else "type:admin")
+                if not nothreads
+                else "type:admin"
             ),
             "enable_at_here": "true",
             "enable_at_channel": "true",

@@ -45,6 +45,8 @@ from db import (
     get_user_positivity_timeout,
     set_user_positivity_timeout,
     clear_user_positivity_timeout,
+    get_threadban,
+    set_threadban,
 )
 from idv import is_idved, is_idved_under18, user_is_bot
 from utils import (
@@ -220,6 +222,20 @@ async def handle_blam(ack, respond, command):
             await set_positivity_filter(cid, setting)
             await respond(f"Positivity filter turned *{setting}*.")
 
+        case "threadban":
+            if len(tokens) == 1:
+                threadban_status = await get_threadban(cid)
+                await respond(
+                    f"Thread banning is currently *{'on' if threadban_status else 'off'}*."
+                )
+                return
+            setting = tokens[1]
+            if setting not in ("on", "off"):
+                await respond(f"Usage: `{BASE_CMD} threadban [on|off]`")
+                return
+            await set_threadban(cid, setting == "on")
+            await respond(f"Thread banning turned *{setting}*.")
+
         case _:
             await respond("Unknown subcommand. Use `help` for usage information.")
 
@@ -296,7 +312,9 @@ async def sync_channel(channel_id: str) -> None:
 
     allowed_users = [user_id for user_id, allowed in zip(members, results) if allowed]
 
-    await _set_channel_allowed_users(channel_id, allowed_users)
+    await _set_channel_allowed_users(
+        channel_id, allowed_users, nothreads=await get_threadban(channel_id)
+    )
 
 
 @app.event("message")
@@ -310,12 +328,34 @@ async def handle_message_events(body):
     if user_id in (ADMIN_ID, BOT_USER_ID):
         return
 
-    slowmode_time = await get_channel_slowmode_time(channel_id)
-    if not slowmode_time:
-        return
-
     managers = set(await list_managers(channel_id))
     if user_id in managers:
+        return
+
+    # positivity!!!!
+    if (
+        await get_positivity_filter(channel_id) == "on"
+    ):  # later I might add more settings, so str check for on
+        existing_timeout = await get_user_positivity_timeout(channel_id, user_id)
+        already_timed_out = (
+            existing_timeout is not None and float(existing_timeout) > time.time()
+        )
+        if not already_timed_out and await is_negative(event.get("text", "")):
+            await set_user_positivity_timeout(
+                channel_id, user_id, str(time.time() + 60)
+            )
+            try:
+                await app.client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text="Your message was detected as negative. You've been put in a positivity timeout for 1 minute.",
+                )
+            except Exception as e:
+                logger.error(e)
+            return
+
+    slowmode_time = await get_channel_slowmode_time(channel_id)
+    if not slowmode_time:
         return
 
     now = time.time()
@@ -347,25 +387,9 @@ async def handle_message_events(body):
         return
 
     allowed_users.remove(user_id)
-    await _set_channel_allowed_users(channel_id, allowed_users)
-
-    # positivity!!!!
-    if (
-        await get_positivity_filter(channel_id) == "on"
-    ):  # later I might add more settings, so str check for on
-        if await is_negative(event.get("text", "")):
-            await set_user_positivity_timeout(
-                channel_id, user_id, str(time.time() + 60)
-            )
-            try:
-                await app.client.chat_postEphemeral(
-                    channel=channel_id,
-                    user=user_id,
-                    text="Your message was detected as negative in sentiment. You've been put in a positivity timeout for 1 minute.",
-                )
-            except Exception as e:
-                logger.error(e)
-            return
+    await _set_channel_allowed_users(
+        channel_id, allowed_users, nothreads=await get_threadban(channel_id)
+    )
 
     async def scheduled_sync():
         await asyncio.sleep(slowmode_time)

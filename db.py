@@ -37,6 +37,7 @@ _TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("idv_required_level", "INTEGER NOT NULL DEFAULT 0"),
         ("slowmode_seconds", "INTEGER NOT NULL DEFAULT 0"),
         ("positivity_filter", "TEXT NOT NULL DEFAULT 'off'"),
+        ("threadban", "INTEGER NOT NULL DEFAULT 0"),
     ],
     "channel_whitelist": [
         ("channel_id", "TEXT NOT NULL"),
@@ -84,6 +85,7 @@ _TABLE_DDL: dict[str, str] = {
             idv_required_level INTEGER NOT NULL DEFAULT 0,
             slowmode_seconds INTEGER NOT NULL DEFAULT 0,
             positivity_filter TEXT NOT NULL DEFAULT 'off',
+            threadban INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (channel_id)
         );""",
     "channel_whitelist": """
@@ -628,6 +630,40 @@ async def clear_user_positivity_timeout(
             db.execute(
                 "DELETE FROM positivity_timeouts WHERE channel_id = ? AND user_id = ?;",
                 (channel_id, user_id),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
+
+
+async def get_threadban(channel_id: str) -> bool:
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT threadban FROM channel_settings WHERE channel_id = ?;",
+                (channel_id,),
+            )
+            row = cur.fetchone()
+            return bool(row["threadban"]) if row else False
+
+    return await asyncio.to_thread(_query)
+
+
+async def set_threadban(channel_id: str, enabled: bool) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                """
+                INSERT INTO channel_settings (channel_id, threadban)
+                VALUES (?, ?)
+                ON CONFLICT(channel_id) DO UPDATE SET threadban=excluded.threadban;
+                """,
+                (channel_id, int(enabled)),
             )
             db.commit()
 
