@@ -18,10 +18,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from db import (
+    add_blam,
     clear_user_slowmoded,
     ensure_schema,
     get_client,
     add_member,
+    remove_blam,
     remove_member,
     list_members,
     list_blammed,
@@ -76,10 +78,11 @@ async def handle_blam(ack, respond, command):
         return
 
     subcommand = tokens[0]
+    cid = command["channel_id"]
     match subcommand:
         case "idv":
             if len(tokens) == 1:
-                level = await get_idv_required_level(command["channel_id"])
+                level = await get_idv_required_level(cid)
                 level_str = {0: "off", 1: "required", 2: "under18"}.get(
                     level, "unknown"
                 )
@@ -93,18 +96,21 @@ async def handle_blam(ack, respond, command):
             if level not in levels:
                 await respond(f"Usage: `{BASE_CMD} idv [off|required|under18]`")
                 return
-            await set_idv_required_level(command["channel_id"], levels[level])
-            await sync_channel(command["channel_id"])
+            await set_idv_required_level(cid, levels[level])
+            await sync_channel(cid)
             await respond(f"IDV requirement set to *{level}*.")
         case "whitelist":
-            if len(tokens) < 2:
-                await respond(
-                    f"Usage: `{BASE_CMD} whitelist [add|remove|list] [@user]`"
-                )
+            if len(tokens) == 1:
+                current_whitelist = await list_whitelisted(cid)
+                if not current_whitelist:
+                    await respond("No users are currently whitelisted.")
+                else:
+                    user_mentions = " ".join(f"<@{uid}>" for uid in current_whitelist)
+                    await respond(f"Whitelisted users: {user_mentions}")
                 return
             action = tokens[1]
             if action == "list":
-                whitelisted = await list_whitelisted(command["channel_id"])
+                whitelisted = await list_whitelisted(cid)
                 if not whitelisted:
                     await respond("No users are whitelisted.")
                     return
@@ -122,10 +128,10 @@ async def handle_blam(ack, respond, command):
                 await respond("Please mention a valid user.")
                 return
             if action == "add":
-                await add_member(command["channel_id"], user_id)
+                await add_member(cid, user_id)
                 await respond(f"User <@{user_id}> added to whitelist.")
             elif action == "remove":
-                await remove_member(command["channel_id"], user_id)
+                await remove_member(cid, user_id)
                 await respond(f"User <@{user_id}> removed from whitelist.")
             else:
                 await respond(
@@ -133,7 +139,13 @@ async def handle_blam(ack, respond, command):
                 )
         case "slowmode":
             if len(tokens) == 1:
-                await respond(f"Usage: `{BASE_CMD} slowmode [off|<seconds>]`")
+                slowmode_time = await get_channel_slowmode_time(cid)
+                if not slowmode_time:
+                    await respond("Slowmode is currently *off*.")
+                else:
+                    await respond(
+                        f"Slowmode is currently set to *{slowmode_time} seconds*."
+                    )
                 return
             setting = tokens[1]
             if setting == "off":
@@ -146,16 +158,41 @@ async def handle_blam(ack, respond, command):
             if seconds != 0 and not (5 <= seconds <= 60):
                 await respond("Slowmode must be between 5 and 60 seconds, or 'off'.")
                 return
-            await set_channel_slowmode_time(command["channel_id"], seconds)
+            await set_channel_slowmode_time(cid, seconds)
             await respond(
                 f"Slowmode set to {'off' if seconds == 0 else f'{seconds} seconds'}."
             )
 
         case "user":
-            # action: blam, unblam, list
-            # tbd, will figure out later
-            # weird stuff going on
-            await respond("User subcommand is temporarily nonfunctional.")
+            if len(tokens) == 1:
+                await respond(f"Usage: `{BASE_CMD} user [blam/unblam/list] [@user]`")
+                return
+            if tokens[1] == "list":
+                blammed_users = await list_blammed(cid)
+                user_mentions = " ".join(f"<@{uid}>" for uid in blammed_users)
+                await respond(f"Blammed users: {user_mentions}")
+                return
+            if len(tokens) < 3 or tokens[1] not in ("blam", "unblam"):
+                await respond(f"Usage: `{BASE_CMD} user [blam/unblam/list] [@user]`")
+                return
+            if tokens[1] == "blam":
+                uid = _parse_mention(tokens[2])
+                if not uid:
+                    await respond("Please mention a valid user.")
+                    return
+                await add_blam(cid, uid)
+                await sync_channel(cid)
+                await respond(f"<@{uid}> has been blammed.")
+
+            if tokens[1] == "unblam":
+                uid = _parse_mention(tokens[2])
+                if not uid:
+                    await respond("Please mention a valid user.")
+                    return
+                await remove_blam(cid, uid)
+                await sync_channel(cid)
+                await respond(f"<@{uid}> has been unblammed.")
+
         case _:
             await respond("Unknown subcommand. Use `help` for usage information.")
 
