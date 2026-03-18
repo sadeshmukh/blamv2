@@ -2,7 +2,7 @@
 
 CHANNELBLAM allows you to manage your channel with a variety of features, all done without any admin APIs. Currently, it supports IDV locking, slowmode, positivity filters, and individual user BLAMs, all utilizing channel posting permissions.
 
-## How to Use
+## How to Use (for the HC Slack)
 
 Invite @BLAMV2 (a bot) to your channel. It should automatically invite the user @BLAMMER, but if it doesn't, do that manually. Then, grant @BLAMMER Channel Manager to allow it to change channel posting permissions.
 
@@ -33,8 +33,10 @@ export SLACK_APP_TOKEN=xapp-...
 export SLACK_BOT_TOKEN=xoxb-...
 export SLACK_SIGNING_SECRET=your-signing-secret
 export SLACK_PERSONAL_TOKEN=xoxp-... # moving away from this one in the future
-export SLACK_XOXC=xoxc-...
+
+export SLACK_XOXC=xoxc-... # of the user to impersonate for moderation actions
 export SLACK_XOXD=xoxd-...
+
 export ADMIN_ID=U...
 
 export HCAI_API_KEY=sk-hc-v1-... # for positivity filter, optional
