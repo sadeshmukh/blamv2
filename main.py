@@ -82,6 +82,9 @@ async def handle_blam(ack, respond, command):
             f"Usage:\n"
             f"`{BASE_CMD} idv [off|required|under18]`\n"
             f"`{BASE_CMD} whitelist [add|remove|list] [@user]`"
+            f"`{BASE_CMD} slowmode [off|<seconds>]`\n"
+            f"`{BASE_CMD} user [blam/unblam/list] [@user]`\n"
+            f"`{BASE_CMD} positivity [on|off]`\n"
         )
         return
 
@@ -114,6 +117,7 @@ async def handle_blam(ack, respond, command):
             await set_idv_required_level(cid, levels[level])
             await sync_channel(cid)
             await respond(f"IDV requirement set to *{level}*.")
+
         case "whitelist":
             if len(tokens) == 1:
                 current_whitelist = await list_whitelisted(cid)
@@ -152,6 +156,7 @@ async def handle_blam(ack, respond, command):
                 await respond(
                     f"Usage: `{BASE_CMD} whitelist [add|remove|list] [@user]`"
                 )
+
         case "slowmode":
             if len(tokens) == 1:
                 slowmode_time = await get_channel_slowmode_time(cid)
@@ -237,7 +242,9 @@ async def handle_blam(ack, respond, command):
             await respond(f"Thread banning turned *{setting}*.")
 
         case _:
-            await respond("Unknown subcommand. Use `help` for usage information.")
+            await respond(
+                f"Unknown subcommand. Use `{BASE_CMD} help` for usage information."
+            )
 
 
 async def _process_user_permissions(
