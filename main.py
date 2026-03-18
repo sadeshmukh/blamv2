@@ -355,13 +355,13 @@ async def handle_message_events(body):
     ):  # later I might add more settings, so str check for on
         if await is_negative(event.get("text", "")):
             await set_user_positivity_timeout(
-                channel_id, user_id, str(time.time() + 3600)
+                channel_id, user_id, str(time.time() + 60)
             )
             try:
                 await app.client.chat_postEphemeral(
                     channel=channel_id,
                     user=user_id,
-                    text="Your message was detected as negative in sentiment. You've been put in a positivity timeout for 1 hour.",
+                    text="Your message was detected as negative in sentiment. You've been put in a positivity timeout for 1 minute.",
                 )
             except Exception as e:
                 logger.error(e)
