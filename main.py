@@ -253,7 +253,7 @@ async def _process_user_permissions(
         return True
 
     slowmoded_until = await get_user_slowmoded(channel_id, user_id)
-    if slowmoded_until is not None:
+    if slowmoded_until is not None and await get_channel_slowmode_time(channel_id) > 0:
         now = time.time()
         expires_timestamp = float(slowmoded_until)
         if expires_timestamp > now:
@@ -262,7 +262,10 @@ async def _process_user_permissions(
         await clear_user_slowmoded(channel_id, user_id)
 
     positivitied_until = await get_user_positivity_timeout(channel_id, user_id)
-    if positivitied_until is not None:
+    if (
+        positivitied_until is not None
+        and await get_positivity_filter(channel_id) == "on"
+    ):
         now = time.time()
         expires_timestamp = float(positivitied_until)
         if expires_timestamp > now:
