@@ -5,7 +5,7 @@ from slack_sdk.errors import SlackApiError
 import os
 import json
 
-logger = logging.getLogger("utils")
+logger = logging.getLogger(__name__)
 
 _USER_ID_RE = re.compile(r"^[UW][A-Z0-9]{2,}$")
 

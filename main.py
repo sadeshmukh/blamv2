@@ -17,6 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+from ai import is_negative
 from db import (
     add_blam,
     clear_user_slowmoded,
@@ -39,6 +40,11 @@ from db import (
     set_members,
     set_managers,
     list_managers,
+    get_positivity_filter,
+    set_positivity_filter,
+    get_user_positivity_timeout,
+    set_user_positivity_timeout,
+    clear_user_positivity_timeout,
 )
 from idv import is_idved, is_idved_under18, user_is_bot
 from utils import (
@@ -79,6 +85,13 @@ async def handle_blam(ack, respond, command):
 
     subcommand = tokens[0]
     cid = command["channel_id"]
+    caller = command["user_id"]
+    managers = set(await list_managers(cid))
+    if (
+        caller != ADMIN_ID and caller not in managers
+    ):  # holy crap how did I not have this earlier
+        await respond("You don't have permission to BLAM.")
+        return
     match subcommand:
         case "idv":
             if len(tokens) == 1:
@@ -193,6 +206,20 @@ async def handle_blam(ack, respond, command):
                 await sync_channel(cid)
                 await respond(f"<@{uid}> has been unblammed.")
 
+        case "positivity":
+            if len(tokens) == 1:
+                filter_status = await get_positivity_filter(cid)
+                await respond(
+                    f"Positivity filter is currently *{'on' if filter_status == 'on' else 'off'}*."
+                )
+                return
+            setting = tokens[1]
+            if setting not in ("on", "off"):
+                await respond(f"Usage: `{BASE_CMD} positivity [on|off]`")
+                return
+            await set_positivity_filter(cid, setting)
+            await respond(f"Positivity filter turned *{setting}*.")
+
         case _:
             await respond("Unknown subcommand. Use `help` for usage information.")
 
@@ -205,6 +232,7 @@ async def _process_user_permissions(
     idv_level: int,
     managers: set,
 ) -> bool:
+    # slow checks: api (idv), negativity (ai)
     if user_id == ADMIN_ID or user_id in managers:
         return True
 
@@ -216,6 +244,14 @@ async def _process_user_permissions(
 
             return False
         await clear_user_slowmoded(channel_id, user_id)
+
+    positivitied_until = await get_user_positivity_timeout(channel_id, user_id)
+    if positivitied_until is not None:
+        now = time.time()
+        expires_timestamp = float(positivitied_until)
+        if expires_timestamp > now:
+            return False
+        await clear_user_positivity_timeout(channel_id, user_id)
 
     if user_id in blammed:
         return False
@@ -312,6 +348,24 @@ async def handle_message_events(body):
 
     allowed_users.remove(user_id)
     await _set_channel_allowed_users(channel_id, allowed_users)
+
+    # positivity!!!!
+    if (
+        await get_positivity_filter(channel_id) == "on"
+    ):  # later I might add more settings, so str check for on
+        if await is_negative(event.get("text", "")):
+            await set_user_positivity_timeout(
+                channel_id, user_id, str(time.time() + 3600)
+            )
+            try:
+                await app.client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text="Your message was detected as negative in sentiment. You've been put in a positivity timeout for 1 hour.",
+                )
+            except Exception as e:
+                logger.error(e)
+            return
 
     async def scheduled_sync():
         await asyncio.sleep(slowmode_time)

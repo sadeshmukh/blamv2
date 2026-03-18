@@ -18,81 +18,127 @@ def get_client() -> sqlite3.Connection:
 
 _db_lock = threading.Lock()
 
+# Canonical schema - must be ensured, automatically (additively) mutates table to fit
+# PRIMARY KEY / table constraints in _TABLE_DDL only.
+_TABLE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "channel_members": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+        ("joined_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+    ],
+    "channel_blammed": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+        ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+    ],
+    # idv_required_level: 0=none, 1=all IDV, 2=under18
+    "channel_settings": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("idv_required_level", "INTEGER NOT NULL DEFAULT 0"),
+        ("slowmode_seconds", "INTEGER NOT NULL DEFAULT 0"),
+        ("positivity_filter", "TEXT NOT NULL DEFAULT 'off'"),
+    ],
+    "channel_whitelist": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+    ],
+    "channel_sync": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("last_sync_at", "DATETIME"),
+        ("last_update_at", "DATETIME"),
+    ],
+    "slowmode_times": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+        ("expires_at", "DATETIME NOT NULL"),
+    ],
+    "channel_managers": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+    ],
+    "positivity_timeouts": [
+        ("channel_id", "TEXT NOT NULL"),
+        ("user_id", "TEXT NOT NULL"),
+        ("expires_at", "TEXT NOT NULL"),
+    ],
+}
+
+_TABLE_DDL: dict[str, str] = {
+    "channel_members": """
+        CREATE TABLE IF NOT EXISTS channel_members (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+    "channel_blammed": """
+        CREATE TABLE IF NOT EXISTS channel_blammed (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+    "channel_settings": """
+        CREATE TABLE IF NOT EXISTS channel_settings (
+            channel_id TEXT NOT NULL,
+            idv_required_level INTEGER NOT NULL DEFAULT 0,
+            slowmode_seconds INTEGER NOT NULL DEFAULT 0,
+            positivity_filter TEXT NOT NULL DEFAULT 'off',
+            PRIMARY KEY (channel_id)
+        );""",
+    "channel_whitelist": """
+        CREATE TABLE IF NOT EXISTS channel_whitelist (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+    "channel_sync": """
+        CREATE TABLE IF NOT EXISTS channel_sync (
+            channel_id TEXT NOT NULL,
+            last_sync_at DATETIME,
+            last_update_at DATETIME,
+            PRIMARY KEY (channel_id)
+        );""",
+    "slowmode_times": """
+        CREATE TABLE IF NOT EXISTS slowmode_times (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            expires_at DATETIME NOT NULL,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+    "channel_managers": """
+        CREATE TABLE IF NOT EXISTS channel_managers (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+    "positivity_timeouts": """
+        CREATE TABLE IF NOT EXISTS positivity_timeouts (
+            channel_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            PRIMARY KEY (channel_id, user_id)
+        );""",
+}
+
+
+def _sync_table_columns(db: sqlite3.Connection, table: str) -> None:
+    existing = {
+        row["name"] for row in db.execute(f"PRAGMA table_info({table});").fetchall()
+    }
+    for col_name, col_def in _TABLE_COLUMNS[table]:
+        if col_name not in existing:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def};")
+
 
 async def ensure_schema() -> None:
     db = get_client()
 
     def _create():
         with _db_lock:
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS channel_members (
-                    channel_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (channel_id, user_id)
-                );
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS channel_blammed (
-                    channel_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (channel_id, user_id)
-                );
-                """
-            )
-            db.execute(  # idv_required_level: 0, 1, 2 (none, all IDV, IDV <18)
-                """
-                CREATE TABLE IF NOT EXISTS channel_settings (
-                    channel_id TEXT NOT NULL,
-                    idv_required_level INTEGER NOT NULL DEFAULT 0,
-                    slowmode_seconds INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (channel_id)
-                );
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS channel_whitelist (
-                    channel_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    PRIMARY KEY (channel_id, user_id)
-                );
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS channel_sync (
-                    channel_id TEXT NOT NULL,
-                    last_sync_at DATETIME,
-                    last_update_at DATETIME,
-                    PRIMARY KEY (channel_id)
-                );
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS slowmode_times (
-                    channel_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    expires_at DATETIME NOT NULL,
-                    PRIMARY KEY (channel_id, user_id)
-                );
-                """
-            )
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS channel_managers (
-                    channel_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    PRIMARY KEY (channel_id, user_id)
-                );
-                """
-            )
-
+            for table, ddl in _TABLE_DDL.items():
+                db.execute(ddl)
+                _sync_table_columns(db, table)
             db.commit()
 
     await asyncio.to_thread(_create)
@@ -492,3 +538,98 @@ async def list_managers(channel_id: str) -> List[str]:
             return [str(row[0]) for row in cur.fetchall()]
 
     return await asyncio.to_thread(_query)
+
+
+async def get_positivity_filter(channel_id: str) -> str:  # on or off
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT positivity_filter FROM channel_settings WHERE channel_id = ?;",
+                (channel_id,),
+            )
+            row = cur.fetchone()
+            return row["positivity_filter"] if row else "off"
+
+    return await asyncio.to_thread(_query)
+
+
+async def set_positivity_filter(channel_id: str, value: str) -> None:
+    if value not in ("on", "off"):
+        raise ValueError(f"Invalid positivity_filter value: {value!r}")
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                """
+                INSERT INTO channel_settings (channel_id, positivity_filter)
+                VALUES (?, ?)
+                ON CONFLICT(channel_id) DO UPDATE SET positivity_filter=excluded.positivity_filter;
+                """,
+                (channel_id, value),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
+
+
+async def set_user_positivity_timeout(
+    channel_id: str,
+    user_id: str,
+    expires_at: str,
+) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                """
+                INSERT INTO positivity_timeouts (channel_id, user_id, expires_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(channel_id, user_id) DO UPDATE SET expires_at=excluded.expires_at;
+                """,
+                (channel_id, user_id, expires_at),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
+
+
+async def get_user_positivity_timeout(
+    channel_id: str,
+    user_id: str,
+) -> str | None:
+    db = get_client()
+
+    def _query():
+        with _db_lock:
+            cur = db.execute(
+                "SELECT expires_at FROM positivity_timeouts WHERE channel_id = ? AND user_id = ?;",
+                (channel_id, user_id),
+            )
+            row = cur.fetchone()
+            return row["expires_at"] if row else None
+
+    return await asyncio.to_thread(_query)
+
+
+async def clear_user_positivity_timeout(
+    channel_id: str,
+    user_id: str,
+) -> None:
+    db = get_client()
+
+    def _exec():
+        with _db_lock:
+            db.execute(
+                "DELETE FROM positivity_timeouts WHERE channel_id = ? AND user_id = ?;",
+                (channel_id, user_id),
+            )
+            db.commit()
+
+    await asyncio.to_thread(_exec)
+    await mark_channel_updated(channel_id)
