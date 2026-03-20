@@ -378,15 +378,21 @@ async def handle_message_events(body):
             new_expires = existing_expires + penalty_time
             await set_user_slowmoded(channel_id, user_id, str(new_expires))
 
-            remaining = int(new_expires - now)
+            remaining = new_expires - now
             try:
                 await app.client.chat_postEphemeral(
                     channel=channel_id,
                     user=user_id,
-                    text=f"You're still in slowmode! Your slowmode has been extended by {penalty_time} seconds. You can post again in {remaining} seconds.",
+                    text=f"You're still in slowmode! Your slowmode has been extended by {penalty_time} seconds. You can post again in {int(remaining)} seconds.",
                 )
             except Exception as e:
                 logger.error(e)
+
+            async def scheduled_sync_extended():
+                await asyncio.sleep(remaining)
+                await sync_channel(channel_id)
+
+            asyncio.create_task(scheduled_sync_extended())
             return
 
     expires_at = now + slowmode_time
