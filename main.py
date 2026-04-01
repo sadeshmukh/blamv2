@@ -92,9 +92,14 @@ async def handle_blam(ack, respond, command):
     cid = command["channel_id"]
     caller = command["user_id"]
     managers = set(await list_managers(cid))
-    if (
-        caller != ADMIN_ID and caller not in managers
-    ):  # holy crap how did I not have this earlier
+    if caller != ADMIN_ID and caller not in managers:
+        if cid not in await list_tracked_channels():
+            await init_channel(cid)
+        else:
+            fresh_managers = set(await _fetch_channel_managers(cid))
+            await set_managers(cid, list(fresh_managers))
+        managers = set(await list_managers(cid))
+    if caller != ADMIN_ID and caller not in managers:
         await respond("You don't have permission to BLAM.")
         return
     match subcommand:
